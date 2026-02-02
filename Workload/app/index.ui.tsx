@@ -1,0 +1,114 @@
+import { createBrowserHistory } from "history";
+import React from "react";
+import { createRoot } from 'react-dom/client';
+
+import { FluentProvider } from "@fluentui/react-components";
+import { createWorkloadClient, InitParams, ItemTabActionContext } from '@ms-fabric/workload-client';
+
+import { fabricLightTheme } from "./theme";
+import { App } from "./App";
+import { callGetItem } from "./controller/ItemCRUDController"
+
+// Suppress benign ResizeObserver errors - these are harmless and occur when the browser
+// can't deliver resize notifications fast enough during layout changes
+window.addEventListener('error', (e) => {
+  if (e.message && e.message.includes('ResizeObserver')) {
+    e.stopImmediatePropagation();
+    e.stopPropagation();
+    e.preventDefault();
+  }
+});
+
+window.addEventListener('unhandledrejection', (e) => {
+  if (e.reason?.message?.includes('ResizeObserver')) {
+    e.stopImmediatePropagation();
+    e.stopPropagation();
+    e.preventDefault();
+  }
+});
+
+// Override console.error to filter ResizeObserver messages
+const originalConsoleError = console.error;
+console.error = (...args: any[]) => {
+  if (args[0]?.toString().includes('ResizeObserver')) {
+    return;
+  }
+  originalConsoleError.apply(console, args);
+};
+
+export async function initialize(params: InitParams) {
+    console.log('🚀 UI initialization started with params:', params);
+    
+    const workloadClient = createWorkloadClient();
+    console.log('✅ WorkloadClient created successfully');
+
+    const history = createBrowserHistory();
+    console.log('✅ Browser history created successfully');
+    
+    workloadClient.navigation.onNavigate((route) => {
+        console.log('🧭 Navigation event:', route);
+        history.replace(route.targetUrl);
+    });
+    workloadClient.action.onAction(async function ({ action, data }) {
+        const { id } = data as ItemTabActionContext;
+        switch (action) {
+            case 'item.tab.onInit':
+                try {
+                    const itemResult = await callGetItem(workloadClient, id);
+                    if (itemResult?.item?.displayName) {
+                        return { title: itemResult.item.displayName };
+                    } else {
+                        console.warn(`Item not found or missing displayName for ID: ${id}`);
+                        return { title: 'Untitled Item' }; // Provide a default title
+                    }
+                } catch (error) {
+                    console.error(
+                        `Error loading the Item (object ID:${id})`,
+                        error
+                    );
+                    return {};
+                }
+            case 'item.tab.canDeactivate':
+                return { canDeactivate: true };
+            case 'item.tab.onDeactivate':
+                return {};
+            case 'item.tab.canDestroy':
+                return { canDestroy: true };
+            case 'item.tab.onDestroy':
+                return {};
+            case 'item.tab.onDelete':
+                return {};
+            default:
+                throw new Error('Unknown action received');
+        }
+    });
+    
+    const rootElement = document.getElementById('root');
+    if (!rootElement) {
+        console.error('❌ Root element not found!');
+        document.body.innerHTML = '<div style="padding: 20px; color: red;">❌ Error: Root element not found</div>';
+        return;
+    }
+    
+    try {
+        const root = createRoot(rootElement);
+        console.log('✅ React root created successfully');
+        
+        console.log('🎨 Rendering App component...');
+        root.render(
+            <FluentProvider theme={fabricLightTheme}>
+                <App history={history} workloadClient={workloadClient} />
+            </FluentProvider>
+        );
+        console.log('✅ App component rendered successfully');
+    } catch (error) {
+        console.error('❌ Error during React rendering:', error);
+        rootElement.innerHTML = `
+            <div style="padding: 20px; color: red; font-family: monospace;">
+                <h2>❌ React Rendering Error</h2>
+                <p>Error: ${error.message}</p>
+                <pre>${error.stack}</pre>
+            </div>
+        `;
+    }
+}

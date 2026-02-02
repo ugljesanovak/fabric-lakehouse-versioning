@@ -1,0 +1,13 @@
+{
+    "Workload_Display_Name": "Lakehouse File Versioning",
+    "Workload_Full_Display_Name": "Lakehouse File Versioning",
+    "Workload_Description": "Git-like version control for your OneLake data files",
+    "Workload_Hub_Slogan": "Bring version control to your Lakehouse data",
+    "Workload_Hub_Description": "Lakehouse File Versioning brings Git-like version control to your OneLake data files, enabling reproducible data snapshots, interactive SQL exploration, and commit-based workflows.\n\n**Key Features:**\n\n• Create immutable snapshots of CSV and Parquet files with commit-based versioning\n• Explore and transform data using interactive SQL queries powered by DuckDB\n• Navigate your data history with familiar repository and branch structures\n• Ensure auditability and reproducibility for compliance and data governance",
+    "Workload_Hub_GetStarted_1_Title": "Create Your First Version Controlled Lakehouse",    
+    "Workload_Hub_GetStarted_1_Sub_Title": "Start versioning your data files",
+    "Workload_Hub_GetStarted_1_Description": "Create a new Version Controlled Lakehouse item, connect it to an existing Lakehouse, and start committing snapshots of your data files.",
+    "LakehouseGitFSItem_DisplayName": "Version Controlled Lakehouse",
+    "LakehouseGitFSItem_DisplayName_Plural": "Version Controlled Lakehouses",
+    "LakehouseGitFSItem_Description": "Git-like version control for Lakehouse files with interactive SQL exploration"
+}

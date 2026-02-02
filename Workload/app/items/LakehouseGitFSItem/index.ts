@@ -1,0 +1,2 @@
+export { LakehouseGitFSItemEditor } from './LakehouseGitFSItemEditor';
+
