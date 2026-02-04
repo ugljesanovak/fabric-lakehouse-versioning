@@ -94,8 +94,38 @@ const useStyles = makeStyles({
         ...shorthands.borderRadius(tokens.borderRadiusSmall),
     },
     commitDropdown: {
-        minWidth: '300px',
-        maxWidth: '400px',
+        minWidth: '400px',
+        maxWidth: '500px',
+    },
+    commitOption: {
+        display: 'flex',
+        alignItems: 'center',
+        ...shorthands.gap(tokens.spacingHorizontalS),
+        minWidth: 0,
+    },
+    commitHash: {
+        fontFamily: tokens.fontFamilyMonospace,
+        fontWeight: tokens.fontWeightSemibold,
+        color: tokens.colorBrandForeground1,
+        backgroundColor: tokens.colorBrandBackground2,
+        ...shorthands.padding('2px', '6px'),
+        ...shorthands.borderRadius(tokens.borderRadiusSmall),
+        flexShrink: 0,
+    },
+    commitMessage: {
+        flexGrow: 1,
+        flexShrink: 1,
+        minWidth: 0,
+        ...shorthands.overflow('hidden'),
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        color: tokens.colorNeutralForeground1,
+    },
+    commitDate: {
+        fontSize: tokens.fontSizeBase200,
+        color: tokens.colorNeutralForeground3,
+        flexShrink: 0,
+        marginLeft: 'auto',
     },
     commitIdHighlight: {
         fontWeight: tokens.fontWeightSemibold,
@@ -229,6 +259,28 @@ export interface FileQueryPanelProps {
     onSave?: () => Promise<void>;
     onClose: () => void;
 }
+
+// Helper function to format relative time
+const formatRelativeTime = (dateString: string): string => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+};
+
+// Helper function to truncate commit message
+const truncateMessage = (message: string, maxLength: number = 45): string => {
+    if (message.length <= maxLength) return message;
+    return message.substring(0, maxLength).trim() + '...';
+};
 
 export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
     workloadClient,
@@ -595,21 +647,46 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
                     <Text className={styles.fileName}>{fileName}@{branchName}</Text>
                     <Dropdown
                         className={styles.commitDropdown}
-                        value={fileCommits.find(fc => fc.fileRecord.commit_id === selectedCommitId)?.commit?.id.substring(0, 8) || selectedCommitId.substring(0, 8)}
+                        value={
+                            (() => {
+                                const currentCommit = fileCommits.find(fc => fc.fileRecord.commit_id === selectedCommitId);
+                                if (currentCommit) {
+                                    const hash = currentCommit.commit!.id.substring(0, 8);
+                                    const msg = truncateMessage(currentCommit.commit!.message || 'No message', 30);
+                                    return `${hash} • ${msg}`;
+                                }
+                                return selectedCommitId.substring(0, 8);
+                            })()
+                        }
                         selectedOptions={[selectedCommitId]}
                         onOptionSelect={handleCommitChange}
                         size="small"
                     >
-                        {fileCommits.map(fc => (
-                            <Option 
-                                key={fc.fileRecord.commit_id} 
-                                value={fc.fileRecord.commit_id}
-                                text={`${fc.commit!.id.substring(0, 8)} - ${new Date(fc.commit!.created_at).toLocaleString()}`}
-                            >
-                                <span className={styles.commitIdHighlight}>{fc.commit!.id.substring(0, 8)}</span>
-                                <span> - {new Date(fc.commit!.created_at).toLocaleString()}</span>
-                            </Option>
-                        ))}
+                        {fileCommits.map(fc => {
+                            const hash = fc.commit!.id.substring(0, 8);
+                            const message = fc.commit!.message || 'No message';
+                            const relativeTime = formatRelativeTime(fc.commit!.created_at);
+                            const fullText = `${hash} • ${message} • ${relativeTime}`;
+                            
+                            return (
+                                <Option 
+                                    key={fc.fileRecord.commit_id} 
+                                    value={fc.fileRecord.commit_id}
+                                    text={fullText}
+                                >
+                                    <Tooltip 
+                                        content={`${message}\n\nCommit: ${fc.commit!.id}\nDate: ${new Date(fc.commit!.created_at).toLocaleString()}`}
+                                        relationship="description"
+                                    >
+                                        <div className={styles.commitOption}>
+                                            <span className={styles.commitHash}>{hash}</span>
+                                            <span className={styles.commitMessage}>{truncateMessage(message)}</span>
+                                            <span className={styles.commitDate}>{relativeTime}</span>
+                                        </div>
+                                    </Tooltip>
+                                </Option>
+                            );
+                        })}
                     </Dropdown>
                 </div>
                 <Tooltip content="Close file" relationship="label">
