@@ -1,0 +1,11 @@
+product_id,product_name,category,price,stock_quantity,supplier,last_restock_date
+101,Laptop Pro 15,Electronics,1299.99,45,TechCorp,2024-01-20
+102,Wireless Mouse,Accessories,29.99,234,GadgetInc,2024-02-01
+103,Office Chair Deluxe,Furniture,349.99,18,ComfortCo,2024-01-15
+104,USB-C Hub,Accessories,49.99,156,TechCorp,2024-02-10
+105,Standing Desk,Furniture,599.99,12,ComfortCo,2024-01-28
+106,Noise-Canceling Headphones,Electronics,249.99,67,AudioMax,2024-02-05
+107,Mechanical Keyboard,Accessories,129.99,89,TechCorp,2024-01-22
+108,Monitor 27inch 4K,Electronics,449.99,34,DisplayPro,2024-02-08
+109,Desk Lamp LED,Accessories,39.99,178,LightingPlus,2024-01-30
+110,Ergonomic Mouse Pad,Accessories,24.99,300,ComfortCo,2024-02-12

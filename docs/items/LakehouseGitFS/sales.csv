@@ -1,0 +1,16 @@
+transaction_id,customer_id,product_id,quantity,transaction_date,payment_method,discount_applied
+T001,1,101,1,2024-01-25,Credit Card,0.00
+T002,2,102,2,2024-01-26,PayPal,5.00
+T003,3,106,1,2024-01-27,Credit Card,0.00
+T004,1,107,1,2024-01-28,Credit Card,10.00
+T005,4,103,2,2024-01-29,Debit Card,0.00
+T006,5,108,1,2024-01-30,Credit Card,25.00
+T007,2,104,3,2024-01-31,PayPal,0.00
+T008,6,105,1,2024-02-01,Credit Card,50.00
+T009,7,109,2,2024-02-02,Credit Card,0.00
+T010,3,110,4,2024-02-03,PayPal,5.00
+T011,8,101,1,2024-02-04,Debit Card,0.00
+T012,1,102,5,2024-02-05,Credit Card,15.00
+T013,9,106,2,2024-02-06,Credit Card,0.00
+T014,2,107,1,2024-02-07,PayPal,0.00
+T015,10,108,1,2024-02-08,Credit Card,30.00

@@ -1,12 +1,14 @@
-# LakehouseGitFS
+# Version Controlled Lakehouse (LakehouseGitFS)
 
 **Git-like, zero-copy file versioning for Microsoft Fabric Lakehouse**, inspired by [lakeFS](https://lakefs.io/) and [duckdb-ui](https://github.com/frectonz/duckdb-ui).
+
+> **Note:** This item appears as **Version Controlled Lakehouse** in the Fabric UI (internal code name: `LakehouseGitFS`).
 
 ---
 
 ## What Is It?
 
-LakehouseGitFS is a Fabric workload item that brings **version control semantics** to **OneLake data files**. It enables data engineers and analysts to:
+Version Controlled Lakehouse is a Fabric workload item that brings **version control semantics** to **OneLake data files**. It enables data engineers and analysts to:
 
 - Browse and query Lakehouse files (CSV and Parquet) using SQL
 - Commit query results as immutable file versions  
@@ -25,10 +27,14 @@ LakehouseGitFS is a Fabric workload item that brings **version control semantics
 
 ### Current (MVP)
 - **SQL exploration** powered by DuckDB WASM running in the browser
-- **Repository tree navigation** with hierarchical structure (Repository → main → Files)
-- **Commit-based versioning** with immutable file snapshots
-- **Single branch** (`main`) for simplified workflows
+- **Repository tree navigation** with hierarchical structure (Repository → Branches → Files)
+- **Git-like commit model** with parent commit tracking and snapshot-based versioning
+- **Multi-branch support** with branch creation, switching, and deletion
+- **Commit graph visualization** with parent-child relationships (GitHub/GitKraken-inspired)
+- **Interactive commit history** with visual timeline and file explorer
+- **Immutable snapshots** storing complete repository state per commit (like Git/lakeFS)
 - **OneLake persistence** for committed files
+- **Branch operations** including create branch from any commit
 
 ### Supported Formats
 - CSV (text-based)
@@ -36,11 +42,12 @@ LakehouseGitFS is a Fabric workload item that brings **version control semantics
 
 ### Future Vision
 - **Backend option** using Fabric SQL for metadata (multi-user, enterprise-grade)
-- **Multi-branch support** with merge and diff capabilities
+- **Merge capabilities** with conflict resolution between branches
+- **Diff visualization** showing changes between commits and branches
 - **Cross-Lakehouse references** with true zero-copy semantics (OneLake shortcuts)
-- **Commit graph visualization** for history exploration
 - **Governance integration** with Fabric lineage and catalog
 - **Policy-based commit validation** for data quality
+- **Content-based deduplication** for efficient storage
 
 ---
 
@@ -48,13 +55,17 @@ LakehouseGitFS is a Fabric workload item that brings **version control semantics
 
 ### For Data Engineers
 - **Reproducible snapshots** of query results for auditing and rollback
-- **Familiar Git semantics** applied to data files
+- **Familiar Git semantics** applied to data files (commits, branches, parent tracking)
 - **No infrastructure overhead** with frontend-first architecture
+- **Branch experimentation** isolate changes without affecting main branch
+- **Visual commit history** understand data lineage through graph visualization
 
 ### For Analysts
 - **Interactive SQL exploration** without leaving Fabric
 - **Commit query outputs** to create versioned datasets
-- **Explore commit history** to understand data evolution
+- **Explore commit history** with visual graph and file navigation
+- **Time travel queries** access any previous version through commit history
+- **Branch workflows** work on experimental queries in isolated branches
 
 ### For Organizations
 - **Auditability**: Immutable commit history for compliance
@@ -86,7 +97,9 @@ LakehouseGitFS is a Fabric workload item that brings **version control semantics
 
 **Data Layer:**
 - DuckDB WASM (in-memory during session)
-- Metadata persisted item's definition in Fabric
+- Metadata persisted in item's definition in Fabric
+- Git-like commit model with parent tracking for complete history
+- Snapshot-based commits (entire repository state per commit, like Git)
 - Committed files stored in `/Files/.gitfs/{item_id}/Data/{commit_id}/{file_name}`
 
 **No Backend:**
@@ -101,10 +114,18 @@ See [architecture.md](architecture.md) for technical details.
 ## Status
 
 ✅ **MVP Complete**  
-- Repository management, SQL queries, commit workflow, OneLake persistence
+- Repository management with multi-branch support
+- SQL queries with DuckDB WASM
+- Git-like commit workflow with parent tracking
+- Commit graph visualization with parent-child relationships
+- Branch operations (create, switch, delete)
+- OneLake persistence with snapshot model
 
 🚀 **Future Enhancements**  
-- Fabric SQL backend option, multi-branch, merge/diff, zero-copy with shortcuts
+- Fabric SQL backend option for multi-user scenarios
+- Merge capabilities with conflict resolution
+- Diff visualization between commits/branches
+- Zero-copy with OneLake shortcuts
 
 📚 **Documentation**  
 - [architecture.md](architecture.md) - Technical decisions and component design

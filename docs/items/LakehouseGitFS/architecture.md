@@ -1,6 +1,8 @@
-# LakehouseGitFS Architecture
+# Version Controlled Lakehouse Architecture
 
 **Technical decisions and component design for Git-like file versioning in Microsoft Fabric.**
+
+> **Note:** This item appears as **Version Controlled Lakehouse** in the Fabric UI (internal code name: `LakehouseGitFS`).
 
 ---
 
@@ -18,12 +20,14 @@
 
 ### 1. Fabric Item UI (Frontend)
 - **Framework**: React + TypeScript, Fluent UI v9 (100% Fabric UX System compliance)
-- **Layout**: ItemEditor with Ribbon + Left Panel (RepositoryExplorer) + Main Panel (FileQueryPanel)
+- **Layout**: ItemEditor with Ribbon + Left Panel (RepositoryExplorer) + Center Panel (Tabbed View)
 - **Components**:
   - `LakehouseGitFSItemDefaultView` - Main container with ItemEditorDefaultView two-panel layout
-  - `RepositoryExplorer` - 2-level tree (Repository → Branch → Files)
+  - `RepositoryExplorer` - Multi-level tree (Repository → Branches → Files)
   - `FileQueryPanel` - SQL editor + results grid + commit workflow
+  - `CommitGraph` - Visual commit history with parent-child relationships
 - **State management**: Ribbon-driven progressive enablement (Settings → Save → Commit)
+- **Tabbed interface**: Switch between Repositories, Staging, and Commit History views
 
 ### 2. Client-Side Execution Layer
 - **DuckDB WASM** (v1.28.0): In-browser SQL engine for querying CSV/Parquet files
@@ -53,7 +57,7 @@ interface Repository {
 ```
 
 ### Branch
-Logical pointer to commit history. **MVP constraint: Single branch `main` only.**
+Logical pointer to commit history with HEAD reference.
 
 **TypeScript Interface:**
 ```typescript
@@ -61,24 +65,47 @@ interface Branch {
   id: string;
   repository_id: string;
   name: string;
-  head_commit_id?: string;
-  created_at: number;
+  head_commit_id: string | null;  // Points to latest commit in branch
+  created_at: string;  // ISO timestamp
 }
 ```
 
+**Operations:**
+- Create branch from any commit (creates new HEAD pointer)
+- Switch between branches (updates active branch)
+- Delete branch (removes branch pointer, commits remain)
+- Default branch: `main` created with first repository
+
 ### Commit
-Immutable reference to a file version.
+Immutable snapshot of complete repository state with parent tracking.
 
 **TypeScript Interface:**
 ```typescript
 interface Commit {
   id: string;
-  branch_id: string;
-  message: string;
-  created_at: number;
-  parent_commit_id?: string;
+  repository_id: string;  // Which repository this belongs to
+  branch_id: string;      // Branch where commit was created
+  parent_commit_id: string | null;  // Previous commit (null for initial commit)
+  message: string | null; // Commit description
+  author: string | null;  // User who created commit
+  created_at: string;     // ISO timestamp
 }
 ```
+
+**Commit Model (Git-like Snapshots):**
+- **Parent Tracking**: Each commit stores reference to its parent commit
+- **Complete Snapshots**: Each commit contains full repository state (all files)
+- **Directed Acyclic Graph (DAG)**: Parent links form commit history graph
+- **Branch Divergence**: Multiple commits can share same parent (branching point)
+- **Orphaned Commits**: Commits without parents or unreachable from any branch HEAD
+- **Time Travel**: Navigate to any commit via parent chain
+
+**Implementation Details:**
+- When creating a new commit:
+  1. Current branch's HEAD commit becomes parent_commit_id
+  2. All files from query results are stored in commit folder
+  3. Branch's head_commit_id updates to new commit ID
+  4. Commit includes complete state (lakeFS/Git model, not deltas)
 
 ### File
 Physical file location and metadata.
@@ -140,9 +167,13 @@ export interface GitMetadata {
 - **Design tokens**: 100% compliance (no inline styles, all `makeStyles` with token references)
 
 ### RepositoryExplorer
-- **Purpose**: 2-level tree navigation
-- **Structure**: Repository → Branch (main) → Files
+- **Purpose**: Multi-level tree navigation with branch management
+- **Structure**: Repository → Branches → Files (per branch)
 - **Data source**: Item model metadata (repositories, branches, files arrays)
+- **Branch features**:
+  - Visual indicator for HEAD/active branch
+  - Branch selector in ribbon for quick switching
+  - Context menu for branch operations (create, delete)
 - **UX pattern**: Always visible, disabled until Lakehouse bound
 - **Styling**: `makeStyles` with spacing tokens (paddingLeft for tree hierarchy)
 - **Interaction**: Single-select file → loads in FileQueryPanel
@@ -164,12 +195,28 @@ export interface GitMetadata {
 - **Styling**: 100% design token compliance
 
 ### CommitGraph
-- **Purpose**: Timeline visualization of commit history
+- **Purpose**: Visual Git-like commit history with parent-child relationships
+- **Inspiration**: GitHub Network Graph, GitKraken
 - **Features**:
-  - Chronological display with relative timestamps
-  - Commit messages and metadata
-  - Empty state handling
-- **Status**: Already 100% UX compliant (no refactoring needed)
+  - **Visual DAG**: SVG-based graph with nodes and connecting lines
+  - **Parent tracking**: Visual lines show commit ancestry
+  - **HEAD indicator**: Highlight current branch HEAD with special styling
+  - **Orphaned commits**: Grayed out commits unreachable from active branch
+  - **Branch operations**: Create new branch from any commit
+  - **File navigation**: Expand commit to see associated files
+  - **Metadata display**: Commit hash (short), message, author, timestamp
+  - **Interactive hover**: Highlight parent-child relationships
+  - **Delete commits**: Remove commits (with warning for orphaning children)
+- **Layout**:
+  - Left: Visual graph with nodes and connection lines
+  - Right: Commit cards with expandable file lists
+  - Chronological order (newest first)
+- **Graph Calculation**:
+  - Position nodes in chronological order (Y-axis)
+  - Calculate X-offset based on branch divergence
+  - Draw bezier curves between parent-child commits
+  - Constants: `COMMIT_HEIGHT`, `COMMIT_SPACING`, `NODE_RADIUS`
+- **Status**: 100% Fabric UX compliant with design tokens
 
 ---
 
@@ -192,11 +239,17 @@ export interface GitMetadata {
 
 ## Ribbon State Machine
 
-| State | Settings | Save | Open Lakehouse | Commit | Branch |
-|-------|----------|------|----------------|--------|--------|
+| State | Settings | Save | Open Lakehouse | Commit | Branch Selector |
+|-------|----------|------|----------------|--------|----------------|
 | **No Lakehouse** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Lakehouse bound** | ✅ | ✅ | ✅ | ❌ | ❌ |
-| **File pinned** | ✅ | ✅ | ✅ | ✅ | ✅ (read-only, `main`) |
+| **Lakehouse bound** | ✅ | ✅ | ✅ | ❌ | ✅ (active branch shown) |
+| **File pinned** | ✅ | ✅ | ✅ | ✅ | ✅ (switch branches) |
+
+**Branch Selector:**
+- Dropdown showing current active branch
+- List of all branches in active repository
+- Click to switch branches (updates file tree)
+- Disabled if no repository selected
 
 **Implementation**: Progressive enablement pattern with state-driven `disabled` props
 
@@ -264,7 +317,10 @@ export interface GitMetadata {
 
 ### Phase 1 (MVP) ✅
 - Frontend-first, browser-based metadata
-- Single branch (`main`)
+- Multi-branch support with create/switch/delete operations
+- Git-like commit model with parent tracking
+- Snapshot-based commits (complete repository state)
+- Commit graph visualization with parent-child relationships
 - CSV/Parquet commit snapshots
 - SQL exploration with DuckDB WASM
 

@@ -1,0 +1,11 @@
+customer_id,name,email,city,country,signup_date,total_purchases
+1,Alice Johnson,alice@example.com,Seattle,USA,2023-01-15,5
+2,Bob Smith,bob@example.com,Toronto,Canada,2023-02-20,12
+3,Carol White,carol@example.com,London,UK,2023-03-10,7
+4,David Lee,david@example.com,Sydney,Australia,2023-04-05,3
+5,Emma Davis,emma@example.com,New York,USA,2023-05-18,15
+6,Frank Miller,frank@example.com,Berlin,Germany,2023-06-22,9
+7,Grace Chen,grace@example.com,Singapore,Singapore,2023-07-30,11
+8,Henry Wilson,henry@example.com,Paris,France,2023-08-14,6
+9,Iris Taylor,iris@example.com,Tokyo,Japan,2023-09-25,4
+10,Jack Brown,jack@example.com,Mumbai,India,2023-10-12,8

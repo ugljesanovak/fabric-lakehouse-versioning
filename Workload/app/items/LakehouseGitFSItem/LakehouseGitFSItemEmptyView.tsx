@@ -55,7 +55,7 @@ export function LakehouseGitFSItemEmptyView({
       const selectedItem = await callDatahubOpen(
         workloadClient,
         ["Lakehouse"],
-        t('LakehouseGitFSItemEmptyView_SelectLakehouse_Description', 'Select a Lakehouse to bind this Versioned Fileset'),
+        t('LakehouseGitFSItemEmptyView_SelectLakehouse_Description', 'Select a Lakehouse to bind this Version Controlled Lakehouse'),
         false,
         true
       );
@@ -125,14 +125,14 @@ export function LakehouseGitFSItemEmptyView({
         ? t('LakehouseGitFSItemEmptyView_Binding_InProgress', 'Binding...')
         : t('LakehouseGitFSItemEmptyView_SelectButton', 'Select Lakehouse'),
       icon: isBinding ? undefined : <DatabaseLink20Regular />,
-      description: t('LakehouseGitFSItemEmptyView_SelectButton_Description', 'Choose a Lakehouse to bind this Versioned Fileset.'),
+      description: t('LakehouseGitFSItemEmptyView_SelectButton_Description', 'Choose a Lakehouse to bind this Version Controlled Lakehouse.'),
       onClick: isBinding ? () => {} : handleSelectLakehouse
     }
   ];
 
   return (
     <ItemEditorEmptyView
-      title={t('LakehouseGitFSItemEmptyView_Title', 'Welcome to LakehouseGitFS!')}
+      title={t('LakehouseGitFSItemEmptyView_Title', 'Welcome to Version Controlled Lakehouse!')}
       description={t('LakehouseGitFSItemEmptyView_Description', 'This item must be bound to a Lakehouse before it can be used.')}
       imageSrc="/assets/items/LakehouseGitFSItem/EditorEmpty.svg"
       imageAlt="Empty state illustration"

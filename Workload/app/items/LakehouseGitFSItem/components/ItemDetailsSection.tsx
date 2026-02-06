@@ -69,13 +69,13 @@ export function ItemDetailsSection({
                   <span className="hello-world-detail-value">{item?.id}</span>
                 </div>
                 <div className="hello-world-detail-row">
-                  <Tooltip content="The type of Fabric item in the format [WorkloadName].[ItemName] (e.g., Org.MyWorkload.LakehouseGitFS)" relationship="label">
+                  <Tooltip content="The type of Fabric item in the format [WorkloadName].[ItemName] (e.g., Org.MyWorkload.VersionControlledLakehouse)" relationship="label">
                     <span className="hello-world-detail-label">{t('GettingStarted_WorkspaceType', 'Item Type')}</span>
                   </Tooltip>
                   <span className="hello-world-detail-value">{item?.type}</span>
                 </div>
                 <div className="hello-world-detail-row">
-                  <Tooltip content="The definition is stored as part of the item in Fabric. LakehouseGitFS uses a message to demonstrate the behaviour." relationship="label">
+                  <Tooltip content="The definition is stored as part of the item in Fabric. Version Controlled Lakehouse uses a message to demonstrate the behaviour." relationship="label">
                     <span className="hello-world-detail-label">{t('Item_Definition_Label', 'Item Definition')}</span>
                   </Tooltip>
                   <div className="hello-world-hero-input">

@@ -1,12 +1,14 @@
-# LakehouseGitFS Rebuild Guide
+# Version Controlled Lakehouse Rebuild Guide
 
-**Step-by-step instructions for AI agents and developers to recreate the LakehouseGitFS item from scratch.**
+**Step-by-step instructions for AI agents and developers to recreate the Version Controlled Lakehouse item from scratch.**
+
+> **Note:** This item appears as **Version Controlled Lakehouse** in the Fabric UI (internal code name: `LakehouseGitFS`).
 
 ---
 
 ## Objective
 
-Create a **Fabric workload item named `LakehouseGitFS`** that provides **Git-like, zero-copy file versioning** for Lakehouse data, following the design in [readme.md](readme.md) and [architecture.md](architecture.md).
+Create a **Fabric workload item named `LakehouseGitFS`** (displayed as **Version Controlled Lakehouse** in Fabric UI) that provides **Git-like, zero-copy file versioning** for Lakehouse data, following the design in [readme.md](readme.md) and [architecture.md](architecture.md).
 
 **Prerequisites:**
 - Existing Fabric workload created with the Fabric Extensibility Toolkit

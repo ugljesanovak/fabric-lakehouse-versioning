@@ -720,7 +720,7 @@ export function LakehouseGitFSItemDefaultView({
             padding: '20px',
             textAlign: 'center'
           }}>
-            <h3>Welcome to LakehouseGitFS</h3>
+            <h3>Welcome to Version Controlled Lakehouse</h3>
             <p style={{ color: '#666', marginTop: '8px', maxWidth: '500px' }}>
               Select a branch from the ribbon to view commit history, or choose a file from the repository tree to analyze it with SQL.
             </p>
