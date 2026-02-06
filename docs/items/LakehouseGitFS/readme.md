@@ -33,6 +33,8 @@ Version Controlled Lakehouse is a Fabric workload item that brings **version con
 - **Commit graph visualization** with parent-child relationships (GitHub/GitKraken-inspired)
 - **Interactive commit history** with visual timeline and file explorer
 - **Immutable snapshots** storing complete repository state per commit (like Git/lakeFS)
+- **Flexible commit modes**: Save As (create new derived files) or Overwrite (update existing files)
+- **Multi-table queries**: Load additional files from commit for JOIN operations
 - **OneLake persistence** for committed files
 - **Branch operations** including create branch from any commit
 

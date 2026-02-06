@@ -36,6 +36,13 @@ import {
     Textarea,
     Label,
     Badge,
+    Checkbox,
+    Input,
+    Menu,
+    MenuTrigger,
+    MenuPopover,
+    MenuList,
+    MenuItem,
 } from '@fluentui/react-components';
 import {
     Dismiss24Regular,
@@ -44,6 +51,8 @@ import {
     ChevronRight24Regular,
     Save24Regular,
     ArrowSync24Regular,
+    Database24Regular,
+    Checkmark24Filled,
 } from '@fluentui/react-icons';
 import { WorkloadClientAPI } from '@ms-fabric/workload-client';
 import { OneLakeStorageClient } from '../../../clients';
@@ -314,9 +323,13 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
     const [isCommitting, setIsCommitting] = useState(false);
     const [commitDialogOpen, setCommitDialogOpen] = useState(false);
     const [commitMessage, setCommitMessage] = useState('');
+    const [saveAsNew, setSaveAsNew] = useState(false);
+    const [customFileName, setCustomFileName] = useState('');
     const [showCommitSuccess, setShowCommitSuccess] = useState(false);
     const [isCheckingOut, setIsCheckingOut] = useState(false);
     const [resetDialogOpen, setResetDialogOpen] = useState(false);
+    const [additionalLoadedFiles, setAdditionalLoadedFiles] = useState<Set<string>>(new Set());
+    const [isLoadingAdditionalFile, setIsLoadingAdditionalFile] = useState(false);
 
     // Initialize DuckDB and load file
     useEffect(() => {
@@ -330,6 +343,7 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
             try {
                 setIsLoading(true);
                 setLoadError(null);
+                setAdditionalLoadedFiles(new Set()); // Reset loaded files when switching commits/files
 
                 await duckDBClient.initialize();
 
@@ -401,6 +415,61 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
         };
     }, [onClose]);
 
+    // Get files available in the current commit (excluding the pinned file)
+    const availableFilesInCommit = useMemo(() => {
+        return metadata.files
+            .filter(f => f.commit_id === selectedCommitId && f.file_path !== currentFile.file_path)
+            .sort((a, b) => a.file_path.localeCompare(b.file_path));
+    }, [metadata.files, selectedCommitId, currentFile.file_path]);
+
+    // Load additional file into DuckDB for joins
+    const loadAdditionalFile = useCallback(async (fileRecord: FileRecord) => {
+        if (!duckDBClientRef.current) return;
+
+        try {
+            setIsLoadingAdditionalFile(true);
+            const fileExtension = getFileExtension(fileRecord.physical_location);
+            if (!fileExtension) {
+                throw new Error('Unsupported file type. Only CSV and Parquet files are supported.');
+            }
+
+            const oneLakeClient = new OneLakeStorageClient(workloadClient);
+            const sourceItemWrapper = oneLakeClient.createItemWrapper({
+                id: fileRecord.source_item_id,
+                workspaceId: fileRecord.source_workspace_id
+            });
+            
+            const base64Content = await sourceItemWrapper.readFileAsBase64(fileRecord.physical_location);
+            
+            if (!base64Content) {
+                throw new Error(`Failed to fetch file from OneLake: ${fileRecord.physical_location}`);
+            }
+            
+            const binaryString = atob(base64Content);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            const fileBlob = new Blob([bytes], { 
+                type: fileExtension === 'csv' ? 'text/csv' : 'application/octet-stream' 
+            });
+            
+            const fileName = fileRecord.physical_location.split('/').pop() || `data.${fileExtension}`;
+            await duckDBClientRef.current.loadFile(fileName, fileBlob, fileExtension);
+
+            const tableName = getTableNameFromPath(fileRecord.file_path);
+            await duckDBClientRef.current.createTableFromFile(tableName, fileName, fileExtension);
+
+            setAdditionalLoadedFiles(prev => new Set(prev).add(fileRecord.file_path));
+            console.log(`[LoadAdditionalFile] Loaded ${fileRecord.file_path} as table ${tableName}`);
+        } catch (error) {
+            console.error('Failed to load additional file:', error);
+            setQueryError(error instanceof Error ? error.message : 'Failed to load file');
+        } finally {
+            setIsLoadingAdditionalFile(false);
+        }
+    }, [workloadClient]);
+
     // Execute SQL query
     const handleExecute = useCallback(async () => {
         if (!sqlQuery.trim()) {
@@ -435,7 +504,7 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
     };
 
     // Commit query results as new file version
-    const handleCommit = useCallback(async (message: string) => {
+    const handleCommit = useCallback(async (message: string, saveAsNew: boolean, customFileName: string) => {
         if (!queryResult || !onMetadataChange) return;
 
         try {
@@ -500,7 +569,23 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
 
             // Generate new commit ID
             const newCommitId = crypto.randomUUID();
-            const fileName = currentFile.file_path.split('/').pop() || `data.${fileExtension}`;
+            
+            // Determine filename: use custom name if saveAsNew, otherwise use original
+            let fileName: string;
+            let filePath: string;
+            
+            if (saveAsNew && customFileName.trim()) {
+                // Ensure the custom filename has the correct extension
+                const customName = customFileName.trim();
+                const hasExtension = customName.endsWith(`.${fileExtension}`);
+                fileName = hasExtension ? customName : `${customName}.${fileExtension}`;
+                filePath = fileName; // New file at repository root
+            } else {
+                // Overwrite mode: use original file path
+                fileName = currentFile.file_path.split('/').pop() || `data.${fileExtension}`;
+                filePath = currentFile.file_path;
+            }
+            
             const newPhysicalLocation = `Files/.gitfs/${itemId}/Data/${newCommitId}/${fileName}`;
 
             // STEP 1: Save file to bound Lakehouse (before updating metadata)
@@ -519,11 +604,20 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
                 await itemWrapper.writeFileAsBase64(newPhysicalLocation, base64Content);
             }
 
-            // STEP 2: Create new file record
+            // STEP 2: Get current HEAD to set as parent
+            const currentBranch = metadata.branches.find(b => b.id === branchId);
+            const parentCommitId = currentBranch?.head_commit_id || null;
+
+            // STEP 3: Create snapshot - copy all files from parent commit + add/replace current file
+            const parentFiles = parentCommitId 
+                ? metadata.files.filter(f => f.commit_id === parentCommitId)
+                : [];
+
+            // Create new file record for the committed file
             const newFileRecord: FileRecord = {
                 id: crypto.randomUUID(),
                 commit_id: newCommitId,
-                file_path: currentFile.file_path,
+                file_path: filePath,
                 physical_location: newPhysicalLocation,
                 source_workspace_id: lakehouseWorkspaceId,
                 source_item_id: lakehouseId,
@@ -532,9 +626,18 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
                 created_at: new Date().toISOString(),
             };
 
-            // STEP 3: Get current HEAD to set as parent
-            const currentBranch = metadata.branches.find(b => b.id === branchId);
-            const parentCommitId = currentBranch?.head_commit_id || null;
+            // Clone parent files with new commit_id (snapshot model)
+            const clonedParentFiles = parentFiles
+                .filter(f => f.file_path !== filePath) // Exclude file being updated/replaced
+                .map(f => ({
+                    ...f,
+                    id: crypto.randomUUID(), // New ID for the file record
+                    commit_id: newCommitId,  // Point to new commit
+                    // Keep same physical_location (file data doesn't change)
+                }));
+
+            // Combine: cloned parent files + new/modified file
+            const newCommitFiles = [...clonedParentFiles, newFileRecord];
 
             // STEP 4: Update metadata (after file is saved)
             onMetadataChange((prev) => ({
@@ -556,7 +659,7 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
                 ),
                 files: [
                     ...prev.files,
-                    newFileRecord,
+                    ...newCommitFiles,
                 ],
             }));
 
@@ -584,7 +687,7 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
             setQueryError(error instanceof Error ? error.message : 'Failed to commit changes');
             setIsCommitting(false);
         }
-    }, [queryResult, onMetadataChange, currentFile, itemId, repositoryId, branchId, workloadClient, onSave, workspaceId, lakehouseId, lakehouseWorkspaceId]);
+    }, [queryResult, onMetadataChange, currentFile, itemId, repositoryId, branchId, metadata, workloadClient, onSave, workspaceId, lakehouseId, lakehouseWorkspaceId]);
 
     // Pagination
     const paginatedData = useMemo(() => {
@@ -869,6 +972,54 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
                             Clear
                         </Button>
 
+                        {/* Load Additional Files Menu */}
+                        <Menu>
+                            <MenuTrigger disableButtonEnhancement>
+                                <Tooltip content="Load additional files from this commit for joins" relationship="label">
+                                    <Button
+                                        appearance="subtle"
+                                        icon={<Database24Regular />}
+                                        disabled={isLoadingAdditionalFile || availableFilesInCommit.length === 0}
+                                        size="small"
+                                    >
+                                        Load Files ({additionalLoadedFiles.size})
+                                    </Button>
+                                </Tooltip>
+                            </MenuTrigger>
+                            <MenuPopover>
+                                <MenuList>
+                                    {availableFilesInCommit.length === 0 ? (
+                                        <MenuItem disabled>No other files in this commit</MenuItem>
+                                    ) : (
+                                        availableFilesInCommit.map((fileRecord) => {
+                                            const isLoaded = additionalLoadedFiles.has(fileRecord.file_path);
+                                            const tableName = getTableNameFromPath(fileRecord.file_path);
+                                            return (
+                                                <MenuItem
+                                                    key={fileRecord.id}
+                                                    onClick={() => !isLoaded && loadAdditionalFile(fileRecord)}
+                                                    disabled={isLoaded}
+                                                    icon={isLoaded ? <Checkmark24Filled /> : undefined}
+                                                >
+                                                    {fileRecord.file_path}
+                                                    {isLoaded && (
+                                                        <Badge 
+                                                            appearance="filled" 
+                                                            color="success" 
+                                                            size="small" 
+                                                            style={{ marginLeft: '8px' }}
+                                                        >
+                                                            loaded as {tableName}
+                                                        </Badge>
+                                                    )}
+                                                </MenuItem>
+                                            );
+                                        })
+                                    )}
+                                </MenuList>
+                            </MenuPopover>
+                        </Menu>
+
                         {isExecuting && <Spinner size="tiny" label="Running query..." />}
                     </div>
 
@@ -924,7 +1075,14 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
                             <Text weight="semibold">
                                 {queryResult.rowCount ?? queryResult.rows.length} rows returned
                             </Text>
-                            <Dialog open={commitDialogOpen} onOpenChange={(_, data) => setCommitDialogOpen(data.open)}>
+                            <Dialog open={commitDialogOpen} onOpenChange={(_, data) => {
+                                setCommitDialogOpen(data.open);
+                                if (data.open) {
+                                    // Reset state when dialog opens
+                                    setSaveAsNew(false);
+                                    setCustomFileName('');
+                                }
+                            }}>
                                 <DialogTrigger disableButtonEnhancement>
                                     <Button
                                         icon={<Save24Regular />}
@@ -953,6 +1111,34 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
                                                     className={styles.commitMessageTextarea}
                                                 />
                                             </div>
+                                            <div style={{ marginTop: '16px' }}>
+                                                <Checkbox
+                                                    checked={saveAsNew}
+                                                    onChange={(_, data) => {
+                                                        setSaveAsNew(!!data.checked);
+                                                        if (!data.checked) {
+                                                            setCustomFileName('');
+                                                        }
+                                                    }}
+                                                    label="Save as new file"
+                                                />
+                                            </div>
+                                            {saveAsNew && (
+                                                <div style={{ marginTop: '12px' }}>
+                                                    <Label weight="semibold" style={{ marginBottom: '8px', display: 'block' }}>
+                                                        New File Name
+                                                    </Label>
+                                                    <Input
+                                                        value={customFileName}
+                                                        onChange={(_, data) => setCustomFileName(data.value)}
+                                                        placeholder={`e.g., ${currentFile.file_path.split('/').pop()?.replace(/\.[^.]+$/, '_filtered$&') || 'result.csv'}`}
+                                                        appearance="filled-darker"
+                                                    />
+                                                    <Text size={200} style={{ marginTop: '4px', display: 'block', color: tokens.colorNeutralForeground3 }}>
+                                                        File will be saved as: {customFileName || currentFile.file_path}
+                                                    </Text>
+                                                </div>
+                                            )}
                                         </DialogContent>
                                         <DialogActions>
                                             <Button appearance="secondary" onClick={() => setCommitDialogOpen(false)}>
@@ -960,8 +1146,8 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
                                             </Button>
                                             <Button 
                                                 appearance="primary" 
-                                                onClick={() => handleCommit(commitMessage)}
-                                                disabled={isCommitting}
+                                                onClick={() => handleCommit(commitMessage, saveAsNew, customFileName)}
+                                                disabled={isCommitting || (saveAsNew && !customFileName.trim())}
                                             >
                                                 {isCommitting ? 'Creating Commit...' : 'Create Commit'}
                                             </Button>

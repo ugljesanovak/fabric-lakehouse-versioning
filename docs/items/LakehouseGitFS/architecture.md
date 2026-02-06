@@ -184,14 +184,29 @@ export interface GitMetadata {
   - Monaco SQL editor with syntax highlighting
   - Query execution against DuckDB WASM (fresh instance per file)
   - Results grid with column headers
-  - Commit dialog with message input
+  - **Commit dialog** with two modes:
+    - **Save As**: Create new derived file with custom name (default for transformations)
+    - **Overwrite**: Update existing file path in new commit (for incremental updates)
+  - **Load additional files**: Load other files from current commit into DuckDB for multi-table queries (JOINs)
   - Format preservation (CSV/Parquet based on source)
 - **DuckDB lifecycle** (query execution only):
-  1. User selects file from RepositoryExplorer
+  1. User selects file from RepositoryExplorer (pinned file auto-loaded)
   2. Load file into fresh DuckDB instance
-  3. Execute SQL queries
-  4. On commit: materialize results to OneLake, update item model metadata
-  5. Tear down DuckDB instance
+  3. User optionally loads additional files from commit via "Load Files" button
+  4. Execute SQL queries (including JOINs across loaded tables)
+  5. On commit: materialize results to OneLake, update item model metadata
+  6. Tear down DuckDB instance
+- **Multi-table support**:
+  - Pinned file automatically loaded as primary table
+  - "Load Files" dropdown menu shows other files in current commit
+  - Each loaded file becomes a queryable table (table name = file_path)
+  - Enables complex queries: JOINs, UNIONs, CTEs across multiple datasets
+  - Loaded files tracked per session, reset when switching commits
+- **Commit workflow**:
+  - **Save As mode**: Query results → new file (preserves source files)
+  - **Overwrite mode**: Query results → update existing file path (version history)
+  - Snapshot model: All files from parent commit preserved in new commit
+  - Custom filename validation and extension auto-correction
 - **Styling**: 100% design token compliance
 
 ### CommitGraph

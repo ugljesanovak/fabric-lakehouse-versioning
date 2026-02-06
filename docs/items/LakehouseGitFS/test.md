@@ -30,6 +30,29 @@ This guide provides step-by-step testing procedures with **3 complete test datas
 
 ---
 
+## Commit Modes
+
+When committing query results, you have two options:
+
+### 🆕 Save As New File (Recommended for derived datasets)
+- ✅ Check the **"Save as new file"** checkbox in the commit dialog
+- ✅ Enter a custom filename (e.g., `customers_by_country.csv`)
+- ✅ Original source files remain unchanged
+- ✅ Query results create new derived files
+- ✅ Enables data transformation lineage tracking
+
+**Use Case:** Creating aggregated reports, filtered datasets, or transformed views from source data.
+
+### 🔄 Overwrite Mode (For incremental updates)
+- ⬜ Leave the **"Save as new file"** checkbox unchecked
+- ⬜ Query results will update the currently pinned file in a new commit
+- ⬜ Source file path is preserved across commits
+- ⬜ Enables tracking changes to the same dataset over time
+
+**Use Case:** Updating existing files with refreshed data, fixing data quality issues, or applying corrections.
+
+---
+
 ## Test Environment Setup
 
 ### Step 1: Prepare Test Files in Lakehouse
@@ -214,19 +237,30 @@ ORDER BY total_purchases DESC;
 
 **Steps:**
 1. Click **Commit** in ribbon
-2. Enter commit message:
+2. Check the **"Save as new file"** checkbox
+3. Enter new file name:
+   ```
+   customers_by_country.csv
+   ```
+4. Enter commit message:
    ```
    Initial commit: Customer demographics by country
    ```
-3. Click **Commit Changes**
+5. Click **Create Commit**
 
 **Expected Result:**
 - Commit created with ID (e.g., `abc123...`)
-- File saved to `/Files/.gitfs/{item_id}/Data/{commit_id}/customers_by_country.csv`
+- New file saved to `/Files/.gitfs/{item_id}/Data/{commit_id}/customers_by_country.csv`
+- Original `customers.csv` file remains unchanged
 - Commit appears in CommitGraph
 - Branch `main` HEAD updated to new commit
 - `parent_commit_id` is null (first commit)
 - Save action enabled (metadata changed)
+
+**Key Insight:**
+- ✅ **Save As** mode creates a new derived file from query results
+- 🔄 **Overwrite** mode (unchecked) would update the source file in a new commit
+- This pattern enables data transformation lineage (source → derived datasets)
 
 ---
 
@@ -289,18 +323,25 @@ ORDER BY total_purchases DESC;
 
 **Steps:**
 1. Click **Commit** in ribbon
-2. Enter commit message:
+2. Check the **"Save as new file"** checkbox
+3. Enter new file name:
+   ```
+   high_value_customers.csv
+   ```
+4. Enter commit message:
    ```
    Add high-value customer segmentation (>10 purchases)
    ```
-3. Click **Commit Changes**
+5. Click **Create Commit**
 
 **Expected Result:**
 - Second commit created
 - `parent_commit_id` points to first commit
+- New file saved as `high_value_customers.csv` (not overwriting previous file)
 - CommitGraph shows visual connection (line) between commits
 - Branch `main` HEAD now points to second commit
 - First commit remains in history
+- Repository now contains 2 files: `customers_by_country.csv` and `high_value_customers.csv`
 
 ---
 
@@ -385,18 +426,25 @@ ORDER BY avg_price DESC;
 
 **Steps:**
 1. Click **Commit** in ribbon
-2. Enter commit message:
+2. Check the **"Save as new file"** checkbox
+3. Enter new file name:
+   ```
+   product_category_analysis.csv
+   ```
+4. Enter commit message:
    ```
    Analyze product categories (Electronics, Furniture, Accessories)
    ```
-3. Commit changes
+5. Click **Create Commit**
 
 **Expected Result:**
 - Third commit created
 - `parent_commit_id` points to high-value customer commit
+- New file saved as `product_category_analysis.csv`
 - Commit appears on `feature/product-analysis` branch
 - `main` branch remains unchanged (still at 2 commits)
 - CommitGraph shows branch divergence
+- Repository on feature branch now contains 3 files
 
 ---
 
@@ -458,17 +506,26 @@ ORDER BY transaction_date;
 
 **Steps:**
 4. Run query
-5. Commit with message:
+5. Click **Commit** in ribbon
+6. Check **"Save as new file"**
+7. Enter new file name:
+   ```
+   daily_sales_summary.csv
+   ```
+8. Enter commit message:
    ```
    Add daily sales transaction summary
    ```
+9. Click **Create Commit**
 
 **Expected Result:**
 - Fourth commit created (third on `main` branch)
+- New file saved as `daily_sales_summary.csv`
 - `parent_commit_id` points to second commit (high-value customer)
 - `main` branch now has 3 commits
 - `feature/product-analysis` still has 3 total commits (1 unique)
 - Branches have diverged at second commit
+- Original `sales.csv` remains unchanged (source file preserved)
 
 ---
 
@@ -525,14 +582,22 @@ ORDER BY num_transactions DESC;
 
 **Steps:**
 4. Review results
-5. Commit with message:
+5. Click **Commit** in ribbon
+6. Check **"Save as new file"**
+7. Enter new file name:
+   ```
+   customer_purchase_patterns.csv
+   ```
+8. Enter commit message:
    ```
    Customer purchase patterns with transaction metrics
    ```
+9. Click **Create Commit**
 
 **Expected Result:**
 - Results show joined data from both tables
 - Aggregations calculated correctly
+- New file saved as `customer_purchase_patterns.csv`
 - New commit on `main` branch
 - `parent_commit_id` points to previous `main` commit (sales summary)
 - CommitGraph shows linear progression on `main`
@@ -559,16 +624,145 @@ ORDER BY transaction_count DESC;
 
 **Steps:**
 1. Run query
-2. Commit with message:
+2. Click **Commit** in ribbon
+3. Check **"Save as new file"**
+4. Enter new file name:
+   ```
+   payment_method_analysis.csv
+   ```
+5. Enter commit message:
    ```
    Payment method preference and discount analysis
    ```
+6. Click **Create Commit**
 
 **Expected Result:**
 - New commit created
+- New file saved as `payment_method_analysis.csv`
 - Parent chain: Customer patterns → Sales summary → High-value → Initial
 - `main` branch now has 5 commits
 - Complete snapshot stored
+
+---
+
+### 6.3 Using Overwrite Mode for Incremental Updates
+
+**Scenario:** Update an existing derived file with corrected calculations.
+
+**Steps:**
+1. Pin the file `payment_method_analysis.csv` from the previous commit
+2. Modify the query to add percentage formatting:
+
+**Copy-paste SQL:**
+
+```sql
+-- Query 6b: Improved payment method analysis (with formatted percentages)
+SELECT 
+  payment_method,
+  COUNT(*) as transaction_count,
+  SUM(quantity) as total_items,
+  SUM(discount_applied) as total_discounts,
+  ROUND(AVG(discount_applied), 2) as avg_discount,
+  ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 2) || '%' as percentage_of_transactions
+FROM sales
+GROUP BY payment_method
+ORDER BY transaction_count DESC;
+```
+
+3. Run query
+4. Click **Commit** in ribbon
+5. **Leave "Save as new file" UNCHECKED** (Overwrite mode)
+6. Enter commit message:
+   ```
+   Fix: Add percentage formatting to payment method analysis
+   ```
+7. Click **Create Commit**
+
+**Expected Result:**
+- New commit created
+- File path remains `payment_method_analysis.csv` (same name)
+- Physical location updated to new commit ID: `/Files/.gitfs/{item_id}/Data/{new_commit_id}/payment_method_analysis.csv`
+- Previous version still accessible in commit history
+- `parent_commit_id` points to previous commit
+- **Overwrite mode** preserves file path across version history
+- This enables tracking changes to the same logical file over time
+
+---
+
+### 6.4 Multi-File Queries Using Additional File Loading
+
+**Scenario:** Create a comprehensive analysis by joining multiple files from the same commit.
+
+**Background:** 
+Each commit contains a complete snapshot of all files. To perform queries across multiple tables (e.g., JOIN operations), you can load additional files from the current commit into DuckDB using the **Load Files** button.
+
+**Steps:**
+
+1. Ensure you're on the `main` branch at a recent commit that contains multiple files (e.g., `customers_by_country.csv`, `high_value_customers.csv`, `daily_sales_summary.csv`)
+
+2. Pin the file `customers_by_country.csv` (this is your primary file, automatically loaded)
+
+3. Click **Load Files (0)** button in the editor toolbar
+
+4. From the menu, select `daily_sales_summary.csv` to load it into DuckDB
+   - Note: The button counter updates to **Load Files (1)**
+   - The file is loaded as table `daily_sales_summary`
+
+5. Notice the loaded file now shows with a ✓ checkmark and "loaded as daily_sales_summary" badge
+
+6. Execute a multi-table query:
+
+**Copy-paste SQL:**
+
+```sql
+-- Query 8: Customer engagement - combining customer data with sales activity
+SELECT 
+  c.country,
+  c.customer_count,
+  s.num_transactions,
+  s.unique_customers as active_customers,
+  ROUND(100.0 * s.unique_customers / c.customer_count, 2) as engagement_rate_pct,
+  s.total_items_sold,
+  s.total_discounts,
+  ROUND(s.total_discounts / s.num_transactions, 2) as avg_discount_per_transaction
+FROM customers_by_country c
+INNER JOIN daily_sales_summary s ON 1=1  -- Cross join for overall aggregates
+ORDER BY c.customer_count DESC;
+```
+
+7. Review the results showing combined insights from both tables
+
+8. Click **Commit** in ribbon
+
+9. Check **"Save as new file"**
+
+10. Enter new file name:
+    ```
+    customer_engagement_by_country.csv
+    ```
+
+11. Enter commit message:
+    ```
+    Add customer engagement analysis (JOIN customers + sales)
+    ```
+
+12. Click **Create Commit**
+
+**Expected Result:**
+- Query successfully joins data from `customers_by_country` and `daily_sales_summary` tables
+- Results show combined metrics (customer count, transaction count, engagement rate)
+- New file saved as `customer_engagement_by_country.csv`
+- **Both source files preserved** in the commit (snapshot model)
+- New commit contains 3+ files: all previous files + new derived file
+- Load Files counter resets when switching commits/files
+- Additional loaded files remain available for subsequent queries in the same session
+
+**Key Insights:**
+- ✅ **Snapshot Model**: Each commit contains all files at that point in time
+- ✅ **Multi-Table Queries**: Load multiple files to perform JOINs and complex analyses
+- ✅ **Table Names**: Loaded files use their file_path as table name (e.g., `customers_by_country`, `daily_sales_summary`)
+- ✅ **Session Persistence**: Loaded files remain in DuckDB until you switch commits or close the panel
+- ✅ **Source Preservation**: JOIN results create new derived files without modifying sources
 
 ---
 
@@ -622,13 +816,21 @@ ORDER BY customer_count DESC;
 
 **Steps:**
 1. Run query on `historical/customer-focus` branch
-2. Commit with message:
+2. Click **Commit** in ribbon
+3. Check **"Save as new file"**
+4. Enter new file name:
+   ```
+   geographic_distribution.csv
+   ```
+5. Enter commit message:
    ```
    Geographic distribution analysis (historical snapshot)
    ```
+6. Click **Create Commit**
 
 **Expected Result:**
 - Query executes successfully
+- New file saved as `geographic_distribution.csv`
 - New commit created on historical branch
 - `parent_commit_id` points to second commit
 - Does NOT include later commits from `main`
