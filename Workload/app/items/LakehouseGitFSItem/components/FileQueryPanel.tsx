@@ -53,6 +53,7 @@ import {
     ArrowSync24Regular,
     Database24Regular,
     Checkmark24Filled,
+    DocumentRegular,
 } from '@fluentui/react-icons';
 import { WorkloadClientAPI } from '@ms-fabric/workload-client';
 import { OneLakeStorageClient } from '../../../clients';
@@ -80,9 +81,10 @@ const useStyles = makeStyles({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        ...shorthands.padding('4px', tokens.spacingHorizontalM),
-        backgroundColor: tokens.colorNeutralBackground1,
-        minHeight: '28px',
+        ...shorthands.padding(tokens.spacingVerticalS, tokens.spacingHorizontalM),
+        backgroundColor: tokens.colorNeutralBackground2,
+        ...shorthands.borderBottom('1px', 'solid', tokens.colorNeutralStroke1),
+        minHeight: '44px',
     },
     fileInfo: {
         display: 'flex',
@@ -91,10 +93,31 @@ const useStyles = makeStyles({
         flexGrow: 1,
         minWidth: 0,
     },
+    fileIcon: {
+        color: tokens.colorBrandForeground1,
+        fontSize: '20px',
+        flexShrink: 0,
+    },
     fileName: {
-        fontSize: tokens.fontSizeBase200,
+        fontSize: tokens.fontSizeBase300,
         fontWeight: tokens.fontWeightSemibold,
         color: tokens.colorNeutralForeground1,
+        flexShrink: 0,
+    },
+    branchBadge: {
+        flexShrink: 0,
+    },
+    separator: {
+        color: tokens.colorNeutralForeground3,
+        fontSize: tokens.fontSizeBase300,
+        fontWeight: tokens.fontWeightBold,
+        flexShrink: 0,
+    },
+    headerActions: {
+        display: 'flex',
+        alignItems: 'center',
+        ...shorthands.gap(tokens.spacingHorizontalS),
+        flexShrink: 0,
     },
     commitId: {
         fontSize: tokens.fontSizeBase200,
@@ -105,8 +128,8 @@ const useStyles = makeStyles({
         ...shorthands.borderRadius(tokens.borderRadiusSmall),
     },
     commitDropdown: {
-        minWidth: '400px',
-        maxWidth: '500px',
+        minWidth: '320px',
+        maxWidth: '450px',
     },
     commitOption: {
         display: 'flex',
@@ -861,7 +884,17 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
             {/* Header */}
             <div className={styles.header}>
                 <div className={styles.fileInfo}>
-                    <Text className={styles.fileName}>{fileName}@{branchName}</Text>
+                    <DocumentRegular className={styles.fileIcon} />
+                    <Text className={styles.fileName}>{fileName}</Text>
+                    <Badge 
+                        appearance="filled" 
+                        color="brand" 
+                        size="small"
+                        className={styles.branchBadge}
+                    >
+                        {branchName}
+                    </Badge>
+                    <span className={styles.separator}>•</span>
                     <Dropdown
                         className={styles.commitDropdown}
                         value={
@@ -908,6 +941,8 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
                             );
                         })}
                     </Dropdown>
+                </div>
+                <div className={styles.headerActions}>
                     {/* Reset button */}
                     {(() => {
                         const currentBranch = metadata.branches.find(b => b.id === branchId);
@@ -922,20 +957,20 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
                                     size="small"
                                     aria-label="Reset branch to commit"
                                 >
-                                    {isCheckingOut ? 'Resetting...' : 'Reset to Commit'}
+                                    {isCheckingOut ? 'Resetting...' : 'Reset'}
                                 </Button>
                             </Tooltip>
                         );
                     })()}
+                    <Tooltip content="Close file" relationship="label">
+                        <Button
+                            appearance="subtle"
+                            icon={<Dismiss24Regular />}
+                            onClick={onClose}
+                            aria-label="Close file"
+                        />
+                    </Tooltip>
                 </div>
-                <Tooltip content="Close file" relationship="label">
-                    <Button
-                        appearance="subtle"
-                        icon={<Dismiss24Regular />}
-                        onClick={onClose}
-                        aria-label="Close file"
-                    />
-                </Tooltip>
             </div>
 
             {/* Success Message Bar */}
