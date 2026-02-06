@@ -35,6 +35,7 @@ import {
     DialogActions,
     Textarea,
     Label,
+    Badge,
 } from '@fluentui/react-components';
 import {
     Dismiss24Regular,
@@ -42,6 +43,7 @@ import {
     ChevronLeft24Regular,
     ChevronRight24Regular,
     Save24Regular,
+    ArrowSync24Regular,
 } from '@fluentui/react-icons';
 import { WorkloadClientAPI } from '@ms-fabric/workload-client';
 import { OneLakeStorageClient } from '../../../clients';
@@ -313,6 +315,8 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
     const [commitDialogOpen, setCommitDialogOpen] = useState(false);
     const [commitMessage, setCommitMessage] = useState('');
     const [showCommitSuccess, setShowCommitSuccess] = useState(false);
+    const [isCheckingOut, setIsCheckingOut] = useState(false);
+    const [resetDialogOpen, setResetDialogOpen] = useState(false);
 
     // Initialize DuckDB and load file
     useEffect(() => {
@@ -528,7 +532,11 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
                 created_at: new Date().toISOString(),
             };
 
-            // STEP 3: Update metadata (after file is saved)
+            // STEP 3: Get current HEAD to set as parent
+            const currentBranch = metadata.branches.find(b => b.id === branchId);
+            const parentCommitId = currentBranch?.head_commit_id || null;
+
+            // STEP 4: Update metadata (after file is saved)
             onMetadataChange((prev) => ({
                 ...prev,
                 commits: [
@@ -537,11 +545,15 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
                         id: newCommitId,
                         repository_id: repositoryId,
                         branch_id: branchId,
+                        parent_commit_id: parentCommitId,
                         message: message || `Updated ${fileName}`,
                         author: null,
                         created_at: new Date().toISOString(),
                     }
                 ],
+                branches: prev.branches.map(b => 
+                    b.id === branchId ? { ...b, head_commit_id: newCommitId } : b
+                ),
                 files: [
                     ...prev.files,
                     newFileRecord,
@@ -587,9 +599,34 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
 
     const fileName = currentFile.physical_location.split('/').pop() || 'Unknown File';
     
-    // Get all commits for this file's path
+    // Get commits for this branch: reachable from HEAD + orphans created on this branch
+    const branchCommitIds = useMemo(() => {
+        const currentBranch = metadata.branches.find(b => b.id === branchId);
+        if (!currentBranch) return new Set<string>();
+
+        // 1. Get commits reachable from HEAD
+        const reachable = new Set<string>();
+        let currentId: string | null = currentBranch.head_commit_id;
+        
+        while (currentId) {
+            if (reachable.has(currentId)) break;
+            reachable.add(currentId);
+            const commit = metadata.commits.find(c => c.id === currentId);
+            currentId = commit?.parent_commit_id || null;
+        }
+        
+        // 2. Add orphaned commits that were created on THIS branch
+        const branchOrphans = metadata.commits
+            .filter(c => c.branch_id === branchId && !reachable.has(c.id));
+        
+        branchOrphans.forEach(c => reachable.add(c.id));
+        
+        return reachable;
+    }, [branchId, metadata.branches, metadata.commits]);
+    
+    // Get all commits for this file's path that are part of this branch
     const fileCommits = metadata.files
-        .filter(f => f.file_path === file.file_path)
+        .filter(f => f.file_path === file.file_path && branchCommitIds.has(f.commit_id))
         .map(f => {
             const commit = metadata.commits.find(c => c.id === f.commit_id);
             return { fileRecord: f, commit };
@@ -610,6 +647,83 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
             }
         }
     };
+
+    // Calculate orphaned commits that will be created by reset
+    const orphanedCommitsCount = useMemo(() => {
+        const currentBranch = metadata.branches.find(b => b.id === branchId);
+        if (!currentBranch || currentBranch.head_commit_id === selectedCommitId) return 0;
+
+        // Find all commits reachable from current HEAD
+        const reachableFromCurrent = new Set<string>();
+        let currentId: string | null = currentBranch.head_commit_id;
+        while (currentId) {
+            if (reachableFromCurrent.has(currentId)) break;
+            reachableFromCurrent.add(currentId);
+            const commit = metadata.commits.find(c => c.id === currentId);
+            currentId = commit?.parent_commit_id || null;
+        }
+
+        // Find all commits reachable from selected commit
+        const reachableFromSelected = new Set<string>();
+        let selectedId: string | null = selectedCommitId;
+        while (selectedId) {
+            if (reachableFromSelected.has(selectedId)) break;
+            reachableFromSelected.add(selectedId);
+            const commit = metadata.commits.find(c => c.id === selectedId);
+            selectedId = commit?.parent_commit_id || null;
+        }
+
+        // Orphaned = reachable from current but not from selected
+        return Array.from(reachableFromCurrent).filter(id => !reachableFromSelected.has(id)).length;
+    }, [selectedCommitId, branchId, metadata.branches, metadata.commits]);
+
+    // Check if a commit is orphaned (not reachable from HEAD)
+    const isCommitOrphaned = useCallback((commitId: string) => {
+        const currentBranch = metadata.branches.find(b => b.id === branchId);
+        if (!currentBranch) return false;
+
+        // Find commits reachable from HEAD
+        const reachableFromHead = new Set<string>();
+        let currentId: string | null = currentBranch.head_commit_id;
+        while (currentId) {
+            if (reachableFromHead.has(currentId)) break;
+            reachableFromHead.add(currentId);
+            const commit = metadata.commits.find(c => c.id === currentId);
+            currentId = commit?.parent_commit_id || null;
+        }
+
+        // Commit is orphaned if it's not reachable from HEAD
+        return !reachableFromHead.has(commitId);
+    }, [branchId, metadata.branches, metadata.commits]);
+
+    // Reset handler - moves HEAD to selected commit (with confirmation)
+    const handleReset = useCallback(async () => {
+        if (!onMetadataChange || !onSave) return;
+
+        try {
+            setIsCheckingOut(true);
+            setResetDialogOpen(false);
+            console.log('[Reset] Moving HEAD to commit:', selectedCommitId);
+
+            // Update branch to point HEAD to selected commit
+            onMetadataChange((prev) => ({
+                ...prev,
+                branches: prev.branches.map(b =>
+                    b.id === branchId ? { ...b, head_commit_id: selectedCommitId } : b
+                ),
+            }));
+
+            // Save metadata
+            await onSave();
+
+            console.log('[Reset] ✅ HEAD moved to commit:', selectedCommitId);
+            setIsCheckingOut(false);
+        } catch (error) {
+            console.error('[Reset] Failed:', error);
+            setQueryError(error instanceof Error ? error.message : 'Failed to reset branch');
+            setIsCheckingOut(false);
+        }
+    }, [selectedCommitId, branchId, onMetadataChange, onSave]);
 
     if (isLoading) {
         return (
@@ -667,6 +781,7 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
                             const message = fc.commit!.message || 'No message';
                             const relativeTime = formatRelativeTime(fc.commit!.created_at);
                             const fullText = `${hash} • ${message} • ${relativeTime}`;
+                            const isHead = metadata.branches.find(b => b.id === branchId)?.head_commit_id === fc.commit!.id;
                             
                             return (
                                 <Option 
@@ -675,19 +790,40 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
                                     text={fullText}
                                 >
                                     <Tooltip 
-                                        content={`${message}\n\nCommit: ${fc.commit!.id}\nDate: ${new Date(fc.commit!.created_at).toLocaleString()}`}
+                                        content={`${message}\n\nCommit: ${fc.commit!.id}\nDate: ${new Date(fc.commit!.created_at).toLocaleString()}${isHead ? '\n\n✓ Current HEAD' : ''}`}
                                         relationship="description"
                                     >
                                         <div className={styles.commitOption}>
                                             <span className={styles.commitHash}>{hash}</span>
                                             <span className={styles.commitMessage}>{truncateMessage(message)}</span>
                                             <span className={styles.commitDate}>{relativeTime}</span>
+                                            {isHead && <Badge appearance="filled" color="brand" size="small" style={{ marginLeft: 'auto' }}>HEAD</Badge>}
+                                            {isCommitOrphaned(fc.commit!.id) && !isHead && <Badge appearance="tint" color="warning" size="small" style={{ marginLeft: isHead ? '4px' : 'auto' }}>Orphaned</Badge>}
                                         </div>
                                     </Tooltip>
                                 </Option>
                             );
                         })}
                     </Dropdown>
+                    {/* Reset button */}
+                    {(() => {
+                        const currentBranch = metadata.branches.find(b => b.id === branchId);
+                        const isNotHead = currentBranch?.head_commit_id !== selectedCommitId;
+                        return isNotHead && (
+                            <Tooltip content="Reset branch to this commit (may create orphaned commits)" relationship="label">
+                                <Button
+                                    appearance="subtle"
+                                    icon={<ArrowSync24Regular />}
+                                    onClick={() => setResetDialogOpen(true)}
+                                    disabled={isCheckingOut}
+                                    size="small"
+                                    aria-label="Reset branch to commit"
+                                >
+                                    {isCheckingOut ? 'Resetting...' : 'Reset to Commit'}
+                                </Button>
+                            </Tooltip>
+                        );
+                    })()}
                 </div>
                 <Tooltip content="Close file" relationship="label">
                     <Button
@@ -894,6 +1030,57 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
                     </div>
                 )}
             </div>
+
+            {/* Reset confirmation dialog */}
+            <Dialog open={resetDialogOpen} onOpenChange={(_, data) => setResetDialogOpen(data.open)}>
+                <DialogSurface>
+                    <DialogBody>
+                        <DialogTitle>Reset Branch to Commit?</DialogTitle>
+                        <DialogContent>
+                            {orphanedCommitsCount > 0 ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spacingVerticalM }}>
+                                    <MessageBar intent="warning">
+                                        <MessageBarBody>
+                                            <MessageBarTitle>Warning: This will create orphaned commits</MessageBarTitle>
+                                            Resetting to this commit will orphan <strong>{orphanedCommitsCount}</strong> commit{orphanedCommitsCount !== 1 ? 's' : ''} 
+                                            that are currently reachable from HEAD. These commits will no longer be in the main branch history 
+                                            but can still be accessed if needed.
+                                        </MessageBarBody>
+                                    </MessageBar>
+                                    <Text>
+                                        Are you sure you want to reset branch <strong>{branchName}</strong> to commit{' '}
+                                        <Badge size="small" appearance="tint" color="brand">
+                                            {selectedCommitId.substring(0, 7)}
+                                        </Badge>?
+                                    </Text>
+                                    <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
+                                        Tip: Consider creating a new branch instead to preserve all commits.
+                                    </Text>
+                                </div>
+                            ) : (
+                                <Text>
+                                    Are you sure you want to reset branch <strong>{branchName}</strong> to commit{' '}
+                                    <Badge size="small" appearance="tint" color="brand">
+                                        {selectedCommitId.substring(0, 7)}
+                                    </Badge>?
+                                </Text>
+                            )}
+                        </DialogContent>
+                        <DialogActions>
+                            <Button appearance="secondary" onClick={() => setResetDialogOpen(false)}>
+                                Cancel
+                            </Button>
+                            <Button 
+                                appearance="primary" 
+                                onClick={handleReset}
+                                disabled={isCheckingOut}
+                            >
+                                {isCheckingOut ? 'Resetting...' : 'Reset Branch'}
+                            </Button>
+                        </DialogActions>
+                    </DialogBody>
+                </DialogSurface>
+            </Dialog>
         </div>
     );
 };

@@ -26,6 +26,7 @@ export interface Commit {
   id: string;
   repository_id: string;
   branch_id: string;
+  parent_commit_id: string | null;
   message: string | null;
   author: string | null;
   created_at: string; // ISO timestamp

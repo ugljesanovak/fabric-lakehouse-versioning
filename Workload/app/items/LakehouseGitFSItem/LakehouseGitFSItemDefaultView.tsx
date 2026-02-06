@@ -22,11 +22,12 @@ import { WorkloadClientAPI, NotificationType } from "@ms-fabric/workload-client"
 import { ItemWithDefinition } from "../../controller/ItemCRUDController";
 import { OneLakeStorageClientItemWrapper } from "../../clients";
 import { callNotificationOpen } from "../../controller/NotificationController";
-import { LakehouseGitFSItemDefinition, GitMetadata } from "./LakehouseGitFSItemDefinition";
+import { LakehouseGitFSItemDefinition, GitMetadata, Branch } from "./LakehouseGitFSItemDefinition";
 import { ItemEditorDefaultView } from "../../components/ItemEditor";
 import { RepositoryExplorer } from "./components/RepositoryExplorer";
 import { OneLakeView } from "../../components/OneLakeView";
 import { FileQueryPanel } from "./components/FileQueryPanel";
+import { CommitGraph } from "./components/CommitGraph";
 import { FileRecord } from "./LakehouseGitFSItemDefinition";
 import "./LakehouseGitFSItem.scss";
 
@@ -107,6 +108,8 @@ interface LakehouseGitFSItemDefaultViewProps {
   item?: ItemWithDefinition<LakehouseGitFSItemDefinition>;
   currentDefinition: LakehouseGitFSItemDefinition;
   storageWrapper: OneLakeStorageClientItemWrapper | null;
+  selectedBranch: Branch | null;
+  onBranchSelect?: (branch: Branch) => void;
   messageValue?: string;
   onMessageChange?: (newValue: string) => void;
   onDefinitionChange?: (updater: (prev: LakehouseGitFSItemDefinition) => LakehouseGitFSItemDefinition) => void;
@@ -118,6 +121,8 @@ export function LakehouseGitFSItemDefaultView({
   item,
   currentDefinition,
   storageWrapper,
+  selectedBranch,
+  onBranchSelect,
   messageValue,
   onMessageChange,
   onDefinitionChange,
@@ -141,6 +146,75 @@ export function LakehouseGitFSItemDefaultView({
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
   const [commitMessage, setCommitMessage] = useState("");
   const [selectedFile, setSelectedFile] = useState<FileRecord | null>(null);
+  const [selectedFileBranchId, setSelectedFileBranchId] = useState<string | null>(null);
+
+  // Handle file selection from commit graph
+  const handleFileSelect = (file: FileRecord, branchId: string) => {
+    setSelectedFile(file);
+    setSelectedFileBranchId(branchId);
+  };
+
+  // Handle creating a new branch from a commit
+  const handleCreateBranch = (branchName: string, fromCommitId: string, repositoryId: string) => {
+    updateMetadata((prev) => ({
+      ...prev,
+      branches: [
+        ...prev.branches,
+        {
+          id: crypto.randomUUID(),
+          repository_id: repositoryId,
+          name: branchName,
+          head_commit_id: fromCommitId,
+          created_at: new Date().toISOString(),
+        },
+      ],
+    }));
+
+    // Notify user
+    callNotificationOpen(
+      workloadClient,
+      t('LakehouseGitFS_BranchCreated_Title', 'Branch Created'),
+      t('LakehouseGitFS_BranchCreated_Message', `Branch "${branchName}" created successfully`),
+      NotificationType.Success,
+      undefined
+    );
+
+    // Auto-save after creating branch
+    if (onSave) {
+      onSave();
+    }
+  };
+
+  // Handle deleting a branch
+  const handleDeleteBranch = (branchId: string) => {
+    const branchToDelete = metadata.branches.find(b => b.id === branchId);
+    if (!branchToDelete) return;
+
+    // Remove branch from metadata
+    updateMetadata((prev) => ({
+      ...prev,
+      branches: prev.branches.filter(b => b.id !== branchId),
+    }));
+
+    // Clear selection if the deleted branch was selected
+    if (selectedBranch?.id === branchId) {
+      onBranchSelect?.(null);
+    }
+
+    // Notify user
+    callNotificationOpen(
+      workloadClient,
+      t('LakehouseGitFS_BranchDeleted_Title', 'Branch Deleted'),
+      t('LakehouseGitFS_BranchDeleted_Message', `Branch "${branchToDelete.name}" has been deleted`),
+      NotificationType.Success,
+      undefined
+    );
+
+    // Auto-save after deleting branch
+    if (onSave) {
+      onSave();
+    }
+  };
 
   // Initialize metadata if not present
   const metadata: GitMetadata = currentDefinition.metadata || {
@@ -270,28 +344,84 @@ export function LakehouseGitFSItemDefaultView({
       //   - Commit history preserves modified versions
       //   - Original files remain untouched until edited
 
+      // Get current HEAD to set as parent
+      const currentBranch = currentDefinition.metadata?.branches.find(b => b.id === branchId);
+      const parentCommitId = currentBranch?.head_commit_id || null;
+
       // Create commit with custom message
       const newCommit = {
         id: commitId,
         repository_id: repositoryId,
         branch_id: branchId,
+        parent_commit_id: parentCommitId,
         message: commitMessage.trim() || `Added ${stagedFiles.length} file(s)`,
         author,
         created_at: now
       };
 
-      // Create file records for all staged files
-      const newFiles = stagedFiles.map(stagedFile => ({
-        id: crypto.randomUUID(),
-        commit_id: commitId,
-        file_path: stagedFile.fileName,
-        physical_location: `/${stagedFile.sourcePath}`,
-        source_workspace_id: stagedFile.sourceWorkspaceId,
-        source_item_id: stagedFile.sourceItemId,
-        is_reference: true,
-        size_bytes: null as number | null,
-        created_at: now
-      }));
+      // Get all files from parent commit (complete snapshot)
+      const parentFiles: typeof currentDefinition.metadata.files = [];
+      if (parentCommitId) {
+        // Walk parent chain to get all files reachable from parent
+        const reachableCommits = new Set<string>();
+        let currentId: string | null = parentCommitId;
+        
+        while (currentId) {
+          if (reachableCommits.has(currentId)) break;
+          reachableCommits.add(currentId);
+          const commit = currentDefinition.metadata.commits.find(c => c.id === currentId);
+          currentId = commit?.parent_commit_id || null;
+        }
+        
+        // Get files from all reachable commits
+        const filesFromParents = currentDefinition.metadata.files.filter(f => 
+          reachableCommits.has(f.commit_id)
+        );
+        
+        // Group by file_path and take the latest version
+        const filesByPath = new Map<string, typeof filesFromParents[0]>();
+        filesFromParents.forEach(file => {
+          const existing = filesByPath.get(file.file_path);
+          if (!existing || new Date(file.created_at) > new Date(existing.created_at)) {
+            filesByPath.set(file.file_path, file);
+          }
+        });
+        
+        // Re-create file records for this commit (snapshot)
+        filesByPath.forEach(file => {
+          parentFiles.push({
+            ...file,
+            id: crypto.randomUUID(), // New ID for this commit's snapshot
+            commit_id: commitId,     // This commit owns this snapshot
+          });
+        });
+      }
+
+      // Create file records for newly staged files (override parent versions)
+      const newFilesByPath = new Map<string, typeof parentFiles[0]>();
+      
+      // First, add all parent files
+      parentFiles.forEach(file => {
+        newFilesByPath.set(file.file_path, file);
+      });
+      
+      // Then, add/override with staged files
+      stagedFiles.forEach(stagedFile => {
+        newFilesByPath.set(stagedFile.fileName, {
+          id: crypto.randomUUID(),
+          commit_id: commitId,
+          file_path: stagedFile.fileName,
+          physical_location: `/${stagedFile.sourcePath}`,
+          source_workspace_id: stagedFile.sourceWorkspaceId,
+          source_item_id: stagedFile.sourceItemId,
+          is_reference: true,
+          size_bytes: null as number | null,
+          created_at: now
+        });
+      });
+      
+      // Convert map back to array - this is the COMPLETE snapshot for this commit
+      const allFilesInCommit = Array.from(newFilesByPath.values());
 
       // Update metadata
       updateMetadata((prev) => {
@@ -303,11 +433,11 @@ export function LakehouseGitFSItemDefaultView({
           repositories: prev.repositories,
           branches: updatedBranches,
           commits: [...prev.commits, newCommit],
-          files: [...prev.files, ...newFiles]
+          files: [...prev.files, ...allFilesInCommit] // Complete snapshot
         };
       });
 
-      console.log('[LakehouseGitFSItemDefaultView] ✅ Commit created with', stagedFiles.length, 'file(s)');
+      console.log('[LakehouseGitFSItemDefaultView] ✅ Commit created with', allFilesInCommit.length, 'total file(s) (', stagedFiles.length, 'new/modified)');
 
       // Clear staging area and close dialog
       setStagedFiles([]);
@@ -375,7 +505,15 @@ export function LakehouseGitFSItemDefaultView({
                   onAddFile={handleAddFile}
                   onMetadataChange={updateMetadata}
                   onSave={onSave}
-                  onSelectFile={(file) => setSelectedFile(file)}
+                  onSelectFile={(file, branchId) => {
+                    setSelectedFile(file);
+                    setSelectedFileBranchId(branchId);
+                  }}
+                  onSelectBranch={(branch) => {
+                    setSelectedFile(null);
+                    setSelectedFileBranchId(null);
+                    onBranchSelect?.(branch);
+                  }}
                   refreshTrigger={treeRefreshTrigger}
                 />
               ) : selectedTab === "files" && fileSelectionState?.isSelecting ? (
@@ -540,14 +678,14 @@ export function LakehouseGitFSItemDefaultView({
             file={selectedFile}
             repositoryId={metadata.repositories.find(r => 
               metadata.branches.some(b => 
-                b.id === metadata.commits.find(c => c.id === selectedFile.commit_id)?.branch_id && 
+                b.id === selectedFileBranchId && 
                 b.repository_id === r.id
               )
             )?.id || ''}
             branchName={metadata.branches.find(b => 
-              b.id === metadata.commits.find(c => c.id === selectedFile.commit_id)?.branch_id
+              b.id === selectedFileBranchId
             )?.name || ''}
-            branchId={metadata.commits.find(c => c.id === selectedFile.commit_id)?.branch_id || ''}
+            branchId={selectedFileBranchId || ''}
             itemId={item?.id || ''}
             workspaceId={item?.workspaceId || ''}
             lakehouseId={currentDefinition.lakehouseId}
@@ -555,7 +693,22 @@ export function LakehouseGitFSItemDefaultView({
             metadata={metadata}
             onMetadataChange={updateMetadata}
             onSave={onSave}
-            onClose={() => setSelectedFile(null)}
+            onClose={() => {
+              setSelectedFile(null);
+              setSelectedFileBranchId(null);
+            }}
+          />
+        ) : selectedBranch ? (
+          <CommitGraph
+            repository={metadata.repositories.find(r => 
+              metadata.branches.some(b => b.id === selectedBranch.id && b.repository_id === r.id)
+            ) || null}
+            branch={selectedBranch}
+            commits={metadata.commits}
+            files={metadata.files}
+            onFileSelect={handleFileSelect}
+            onCreateBranch={handleCreateBranch}
+            onDeleteBranch={handleDeleteBranch}
           />
         ) : (
           <div style={{ 
@@ -567,8 +720,10 @@ export function LakehouseGitFSItemDefaultView({
             padding: '20px',
             textAlign: 'center'
           }}>
-            <h3>Select a File to Query</h3>
-            <p style={{ color: '#666', marginTop: '8px' }}>Choose a CSV or Parquet file from the repository tree to analyze it with SQL</p>
+            <h3>Welcome to LakehouseGitFS</h3>
+            <p style={{ color: '#666', marginTop: '8px', maxWidth: '500px' }}>
+              Select a branch from the ribbon to view commit history, or choose a file from the repository tree to analyze it with SQL.
+            </p>
           </div>
         )
       }}

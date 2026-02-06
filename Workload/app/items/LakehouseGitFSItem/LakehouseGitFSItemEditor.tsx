@@ -250,6 +250,8 @@ export function LakehouseGitFSItemEditor(props: PageProps) {
         item={item}
         currentDefinition={currentDefinition}
         storageWrapper={storageWrapper}
+        selectedBranch={selectedBranch}
+        onBranchSelect={setSelectedBranch}
         messageValue={currentDefinition.message}
         onMessageChange={(newValue) => {
           const updated = { ...currentDefinition, message: newValue };

@@ -26,7 +26,7 @@ import {
   Document20Regular,
 } from "@fluentui/react-icons";
 import { WorkloadClientAPI } from "@ms-fabric/workload-client";
-import { GitMetadata, Commit, FileRecord } from "../LakehouseGitFSItemDefinition";
+import { GitMetadata, FileRecord } from "../LakehouseGitFSItemDefinition";
 
 const useStyles = makeStyles({
   container: {
@@ -65,7 +65,8 @@ interface RepositoryExplorerProps {
   onAddFile?: (repositoryId: string, branchId: string) => Promise<void>;
   onMetadataChange?: (updater: (prev: GitMetadata) => GitMetadata) => void;
   onSave?: () => Promise<void>;
-  onSelectFile?: (file: FileRecord) => void;
+  onSelectFile?: (file: FileRecord, branchId: string) => void;
+  onSelectBranch?: (branch: any) => void;
   refreshTrigger?: number;
 }
 
@@ -77,6 +78,7 @@ export const RepositoryExplorer: React.FC<RepositoryExplorerProps> = ({
   onMetadataChange,
   onSave,
   onSelectFile,
+  onSelectBranch,
   refreshTrigger,
 }) => {
   const { t } = useTranslation();
@@ -86,7 +88,7 @@ export const RepositoryExplorer: React.FC<RepositoryExplorerProps> = ({
 
   // Extract data directly from metadata prop
   const repositories = metadata.repositories;
-  const commits = metadata.commits;
+  const branches = metadata.branches;
   const files = metadata.files;
 
   const handleCreateRepo = async () => {
@@ -156,27 +158,13 @@ export const RepositoryExplorer: React.FC<RepositoryExplorerProps> = ({
     }
   };
 
-  const getCommitsForBranch = (branchId: string): Commit[] => {
-    return commits.filter(c => c.branch_id === branchId).sort((a, b) => 
-      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
-  };
-
   const getAllFilesForBranch = (branchId: string): FileRecord[] => {
-    const branchCommits = getCommitsForBranch(branchId);
-    const commitIds = branchCommits.map(c => c.id);
-    const branchFiles = files.filter(f => commitIds.includes(f.commit_id));
-    
-    // Group by file path and get the latest version
-    const fileMap = new Map<string, FileRecord>();
-    branchFiles.forEach(file => {
-      const existing = fileMap.get(file.file_path);
-      if (!existing || new Date(file.created_at) > new Date(existing.created_at)) {
-        fileMap.set(file.file_path, file);
-      }
-    });
-    
-    return Array.from(fileMap.values());
+    const branch = branches.find(b => b.id === branchId);
+    if (!branch || !branch.head_commit_id) return [];
+
+    // With snapshot model, HEAD commit contains complete repository state
+    // Just get all files from the HEAD commit
+    return files.filter(f => f.commit_id === branch.head_commit_id);
   };
 
   return (
@@ -262,6 +250,8 @@ export const RepositoryExplorer: React.FC<RepositoryExplorerProps> = ({
                           >
                             <TreeItemLayout
                               iconBefore={<BranchFork20Regular />}
+                              onClick={() => onSelectBranch?.(branch)}
+                              style={{ cursor: 'pointer' }}
                               actions={
                                 <Tooltip content={t('LakehouseGitFS_AddFile_Tooltip', 'Add File')} relationship="label">
                                   <Button
@@ -289,7 +279,7 @@ export const RepositoryExplorer: React.FC<RepositoryExplorerProps> = ({
                                     <TreeItem key={`file-${file.id}`} itemType="leaf">
                                       <TreeItemLayout
                                         iconBefore={<Document20Regular />}
-                                        onClick={() => onSelectFile?.(file)}
+                                        onClick={() => onSelectFile?.(file, branch.id)}
                                         style={{ cursor: 'pointer' }}
                                       >
                                         {fileName}
