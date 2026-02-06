@@ -497,7 +497,7 @@ export const FileQueryPanel: React.FC<FileQueryPanelProps> = ({
             // Generate new commit ID
             const newCommitId = crypto.randomUUID();
             const fileName = currentFile.file_path.split('/').pop() || `data.${fileExtension}`;
-            const newPhysicalLocation = `Files/.gitfs/${lakehouseId}/Data/${newCommitId}/${fileName}`;
+            const newPhysicalLocation = `Files/.gitfs/${itemId}/Data/${newCommitId}/${fileName}`;
 
             // STEP 1: Save file to bound Lakehouse (before updating metadata)
             console.log('[Commit] Saving to:', newPhysicalLocation);
